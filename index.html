@@ -2,141 +2,198 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stardew: Community Center Update</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stardew Valley Web: Complete Engine</title>
     <script src="https://jsdelivr.net"></script>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; font-family: 'Courier New', monospace; }
-        #ui-layer { position: absolute; top: 10px; left: 10px; z-index: 100; pointer-events: none; }
-        .quest-box { background: rgba(0,0,0,0.7); border: 2px solid #f1c40f; padding: 10px; color: white; border-radius: 5px; margin-bottom: 10px; width: 200px; }
-        #dialogue-container { 
-            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-            width: 80%; background: rgba(45, 25, 10, 0.9); border: 4px solid #8b4513;
-            padding: 20px; color: #f5deb3; display: none; z-index: 1000; border-radius: 10px;
-        }
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Courier New', Courier, monospace; }
+        #game-ui { position: absolute; top: 10px; left: 10px; z-index: 100; pointer-events: none; }
+        .ui-box { background: rgba(0,0,0,0.8); border: 2px solid #f1c40f; padding: 10px; color: white; border-radius: 8px; margin-bottom: 8px; width: 220px; }
+        #dialogue { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 80%; background: #3d2516; border: 4px solid #8b4513; padding: 20px; color: #f5deb3; display: none; z-index: 1000; border-radius: 10px; }
+        #inventory { position: absolute; bottom: 10px; right: 10px; display: flex; gap: 5px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; }
+        .slot { width: 45px; height: 45px; border: 2px solid #777; display: flex; align-items: center; justify-content: center; font-size: 10px; color: white; }
+        .active { border-color: #f1c40f; background: rgba(241, 196, 15, 0.3); }
     </style>
 </head>
 <body>
-    <div id="ui-layer">
-        <div class="quest-box">
-            <strong style="color: #f1c40f;">ACTIVE QUEST:</strong>
-            <div id="quest-text">Listen to the Mayor</div>
+
+    <div id="game-ui">
+        <div class="ui-box">
+            <div style="color: #f1c40f; font-weight: bold;">TIME: <span id="time">06:00</span></div>
+            <div>GOLD: <span id="gold">500</span></div>
+            <div>ENERGY: <span id="energy">100</span>/100</div>
         </div>
-        <div class="quest-box">
-            <strong style="color: #2ecc71;">COMMUNITY CENTER:</strong>
-            <div id="cc-progress">Bundles: 0/3</div>
+        <div class="ui-box">
+            <div style="color: #2ecc71; font-weight: bold;">QUEST:</div>
+            <div id="quest-info">Watch the Intro...</div>
         </div>
     </div>
 
-    <div id="dialogue-container">
-        <div id="name-tag" style="font-weight:bold; color:#f1c40f; font-size:22px;"></div>
-        <div id="message" style="font-size:18px;"></div>
+    <div id="dialogue">
+        <div id="speaker" style="color: #f1c40f; font-weight: bold; font-size: 20px; margin-bottom: 5px;"></div>
+        <div id="message" style="font-size: 18px;"></div>
+    </div>
+
+    <div id="inventory">
+        <div class="slot active" id="s1">1<br>Hoe</div>
+        <div class="slot" id="s2">2<br>Seed</div>
+        <div class="slot" id="s3">3<br>Sword</div>
+        <div class="slot" id="s4">4<br>Rod</div>
     </div>
 
     <script>
     const config = {
         type: Phaser.AUTO,
-        width: 800, height: 600,
+        width: window.innerWidth, height: window.innerHeight,
         pixelArt: true,
         physics: { default: 'arcade' },
         scene: { preload, create, update }
     };
 
     const game = new Phaser.Game(config);
-    let player, cursors, bundlesFound = 0, isCutscene = true;
-    let questStep = 0; // 0: Intro, 1: Visit CC, 2: Collect
+    let player, cursors, night, questStep = 0, bundles = 0;
+    let gold = 500, energy = 100, clock = 360, selected = 1;
+    let isCutscene = true;
 
     function preload() {
-        this.load.spritesheet('chars', 'https://phaser.io', { frameWidth: 16, frameHeight: 18 });
+        this.load.spritesheet('hero', 'https://phaser.io', { frameWidth: 16, frameHeight: 18 });
     }
 
     function create() {
-        // 1. MAP SETUP
+        // 1. WORLD GENERATION
         this.add.grid(1000, 1000, 2000, 2000, 40, 40, 0x27ae60).setAlpha(0.2);
         this.physics.world.setBounds(0, 0, 2000, 2000);
 
-        // 2. COMMUNITY CENTER (Building Placeholder)
-        const cc = this.add.rectangle(1500, 200, 200, 150, 0x95a5a6).setStrokeStyle(4, 0x7f8c8d);
-        this.add.text(1420, 180, "COMMUNITY CENTER", {fontSize: '14px', color: '#fff'});
+        // 2. BUILDINGS & ZONES
+        this.cc = this.add.rectangle(1500, 300, 200, 150, 0x95a5a6).setStrokeStyle(4, 0x7f8c8d);
+        this.add.text(1420, 280, "COMMUNITY CENTER", {fontSize: '14px'});
         
-        // Interaction Zone for CC
-        this.ccZone = this.add.zone(1500, 200, 220, 170);
-        this.physics.world.enable(this.ccZone);
+        // 3. NPC'S
+        this.mayor = this.physics.add.staticSprite(600, 400, 'hero').setScale(2).setTint(0xf1c40f);
+        this.add.text(585, 370, "Mayor", {fontSize: '12px'});
 
-        // 3. PLAYER
-        player = this.physics.add.sprite(400, 300, 'chars').setScale(2.5);
-        this.cameras.main.startFollow(player);
+        // 4. PLAYER
+        player = this.physics.add.sprite(400, 400, 'hero').setScale(2.5);
+        this.cameras.main.startFollow(player, true, 0.05, 0.05);
+        this.cameras.main.setBounds(0, 0, 2000, 2000);
 
-        // 4. BUNDLE ITEMS (Collectibles)
-        this.bundles = this.physics.add.staticGroup();
-        this.bundles.create(200, 1500, 'chars').setTint(0xff0000).setName('Spring Bundle');
-        this.bundles.create(1800, 1800, 'chars').setTint(0x00ff00).setName('Summer Bundle');
-        this.bundles.create(100, 100, 'chars').setTint(0x0000ff).setName('Winter Bundle');
+        // 5. ENEMIES & ITEMS
+        this.enemies = this.physics.add.group();
+        this.spawnSlime();
 
-        // 5. QUEST LOGIC: COLLISION
-        this.physics.add.overlap(player, this.bundles, (p, b) => {
-            if (questStep >= 1) {
-                b.destroy();
-                bundlesFound++;
-                updateUI();
-                if(bundlesFound === 3) showDialogue("System", ["All bundles collected! Return to the Community Center!"]);
-            }
+        this.bundleItems = this.physics.add.staticGroup();
+        this.bundleItems.create(200, 1800, 'hero').setTint(0xff0000).setName("Bundle 1");
+        this.bundleItems.create(1800, 100, 'hero').setTint(0x00ff00).setName("Bundle 2");
+
+        // 6. COLLISIONS
+        this.physics.add.overlap(player, this.bundleItems, (p, b) => {
+            if(questStep >= 2) { b.destroy(); bundles++; updateUI(); }
         });
+        
+        this.physics.add.overlap(player, this.enemies, () => { energy -= 0.05; updateUI(); });
 
-        this.physics.add.overlap(player, this.ccZone, () => {
-            if (questStep === 1) {
-                questStep = 2;
-                showDialogue("Junimo", ["Find the 3 lost bundles hidden across the valley to fix this place!"]);
-                updateUI();
-            } else if (questStep === 2 && bundlesFound === 3) {
-                questStep = 3;
-                cc.setFillStyle(0xf1c40f); // Building "Repaired"
-                showDialogue("Mayor", ["Unbelievable! You fixed the Community Center! You're a hero!"]);
-                updateUI();
-            }
-        });
-
-        // 6. INTRO
-        runIntro(this);
+        // 7. INPUTS
         cursors = this.input.keyboard.createCursorKeys();
+        this.input.keyboard.on('keydown', (e) => {
+            if(["1","2","3","4"].includes(e.key)) { selected = parseInt(e.key); updateUI(); }
+        });
+
+        this.input.on('pointerdown', (p) => {
+            if(isCutscene || energy <= 0) return;
+            const gx = Math.floor(p.worldX/40)*40;
+            const gy = Math.floor(p.worldY/40)*40;
+            useTool(this, gx, gy);
+        });
+
+        // 8. DAY/NIGHT
+        night = this.add.rectangle(1000,1000,2000,2000,0x000033,0).setDepth(1000);
+
+        // START INTRO
+        runIntro(this);
     }
 
     async function runIntro(scene) {
-        scene.cameras.main.pan(1500, 200, 2000); // Pan to CC
-        showDialogue("Mayor", ["Look at this old Community Center... it's a mess.", "Go check it out, will you?"]);
+        isCutscene = true;
+        scene.cameras.main.pan(1500, 300, 2000);
+        say("Mayor Lewis", "This old Community Center is the heart of the town... or it used to be.");
         await new Promise(r => setTimeout(r, 4000));
-        scene.cameras.main.pan(400, 300, 1000);
-        hideDialogue();
+        
+        scene.cameras.main.pan(400, 400, 1500);
+        say("Mayor Lewis", "Go see if you can find the hidden bundles to fix it up!");
+        await new Promise(r => setTimeout(r, 3000));
+        
+        hideSay();
         isCutscene = false;
         questStep = 1;
         updateUI();
     }
 
-    function showDialogue(name, lines) {
-        const container = document.getElementById('dialogue-container');
-        container.style.display = 'block';
-        document.getElementById('name-tag').innerText = name;
-        document.getElementById('message').innerText = lines[0];
-        // Auto-hide after 4s
-        setTimeout(hideDialogue, 4000);
+    function useTool(scene, x, y) {
+        energy -= 2;
+        if(selected === 1) scene.add.rectangle(x+20, y+20, 38, 38, 0x7e5109); // Hoe
+        if(selected === 2 && gold >= 10) { // Seeds
+            gold -= 10;
+            let seed = scene.add.circle(x+20, y+20, 5, 0x2ecc71);
+            scene.time.delayedCall(5000, () => { seed.setRadius(12).setFillStyle(0xf1c40f); gold += 25; updateUI(); });
+        }
+        if(selected === 3) { // Sword
+            let swing = scene.add.circle(player.x, player.y, 60, 0xffffff, 0.2);
+            scene.enemies.getChildren().forEach(e => {
+                if(Phaser.Math.Distance.Between(player.x, player.y, e.x, e.y) < 70) {
+                    e.destroy(); scene.spawnSlime(); gold += 15;
+                }
+            });
+            scene.time.delayedCall(100, () => swing.destroy());
+        }
+        updateUI();
     }
 
-    function hideDialogue() { document.getElementById('dialogue-container').style.display = 'none'; }
+    function spawnSlime() {
+        let s = game.scene.scenes[0].enemies.create(Phaser.Math.Between(100,1900), Phaser.Math.Between(100,1900), 'hero');
+        s.setTint(0x9b59b6);
+    }
+
+    function say(name, msg) {
+        const d = document.getElementById('dialogue');
+        d.style.display = 'block';
+        document.getElementById('speaker').innerText = name;
+        document.getElementById('message').innerText = msg;
+    }
+
+    function hideSay() { document.getElementById('dialogue').style.display = 'none'; }
 
     function updateUI() {
-        const qText = document.getElementById('quest-text');
-        if (questStep === 1) qText.innerText = "Visit the Community Center (Top Right)";
-        if (questStep === 2) qText.innerText = "Collect 3 Hidden Bundles";
-        if (questStep === 3) qText.innerText = "Quest Complete!";
-        document.getElementById('cc-progress').innerText = `Bundles: ${bundlesFound}/3`;
+        document.getElementById('gold').innerText = gold;
+        document.getElementById('energy').innerText = Math.max(0, Math.floor(energy));
+        const q = document.getElementById('quest-info');
+        if(questStep === 1) q.innerText = "Visit the Community Center (Top Right)";
+        if(questStep === 2) q.innerText = `Find Bundles (${bundles}/2)`;
+        
+        document.querySelectorAll('.slot').forEach(s => s.classList.remove('active'));
+        document.getElementById('s'+selected).classList.add('active');
     }
 
-    function update() {
-        if (isCutscene) return;
+    function update(t, d) {
+        if(isCutscene) return;
+
         player.setVelocity(0);
-        if (cursors.left.isDown) player.setVelocityX(-200);
-        else if (cursors.right.isDown) player.setVelocityX(200);
-        if (cursors.up.isDown) player.setVelocityY(-200);
-        else if (cursors.down.isDown) player.setVelocityY(200);
+        if (cursors.left.isDown) player.setVelocityX(-250);
+        else if (cursors.right.isDown) player.setVelocityX(250);
+        if (cursors.up.isDown) player.setVelocityY(-250);
+        else if (cursors.down.isDown) player.setVelocityY(250);
+
+        // Quest Logic
+        if(questStep === 1 && Phaser.Math.Distance.Between(player.x, player.y, 1500, 300) < 150) {
+            questStep = 2; say("Junimo", "Find the colorful bundles to restore our home!");
+            setTimeout(hideSay, 3000); updateUI();
+        }
+
+        // Clock
+        clock += d/2000;
+        let hrs = Math.floor(clock/60)%24;
+        let mins = Math.floor(clock%60);
+        document.getElementById('time').innerText = `${hrs.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}`;
+        night.fillAlpha = (hrs >= 20 || hrs < 6) ? 0.5 : 0;
     }
     </script>
 </body>
