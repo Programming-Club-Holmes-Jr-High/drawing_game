@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Java-Style Drawing Web App</title>
+    <style>
+        /* CSS: The "Look" */
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #2c3e50;
+            overflow: hidden;
+        }
+
+        .toolbar {
+            background: #34495e;
+            padding: 10px 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            color: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            z-index: 10;
+        }
+
+        canvas {
+            flex-grow: 1;
+            cursor: crosshair;
+            background: white;
+            touch-action: none; /* Helps with mobile drawing */
+        }
+
+        button, .upload-label {
+            background: #ecf0f1;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            color: #2c3e50;
+            transition: 0.2s;
+        }
+
+        button:hover, .upload-label:hover {
+            background: #bdc3c7;
+        }
+
+        .upload-label { background: #3498db; color: white; }
+        #clearBtn { background: #e74c3c; color: white; }
+        
+        input[type="file"] { display: none; }
+        .control-group { display: flex; align-items: center; gap: 8px; }
+    </style>
+</head>
+<body>
+
+    <div class="toolbar">
+        <div class="control-group">
+            <button id="brushBtn">Brush</button>
+            <button id="eraserBtn">Eraser</button>
+        </div>
+        
+        <div class="control-group">
+            <label>Color:</label>
+            <input type="color" id="colorPicker" value="#000000">
+        </div>
+
+        <div class="control-group">
+            <label>Size:</label>
+            <input type="range" id="sizeSlider" min="1" max="50" value="5">
+        </div>
+
+        <button id="clearBtn">Clear All</button>
+
+        <label class="upload-label">
+            Upload Image
+            <input type="file" id="imageLoader" accept="image/*">
+        </label>
+        
+        <button id="saveBtn" style="background: #27ae60; color: white;">Save Drawing</button>
+    </div>
+
+    <canvas id="drawingCanvas"></canvas>
+
+    <script>
+        /* JS: The "Logic" */
+        const canvas = document.getElementById('drawingCanvas');
+        const ctx = canvas.getContext('2d');
+        const imageLoader = document.getElementById('imageLoader');
+
+        // Setup Canvas Size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight - 60; // Subtract toolbar height
+            // Fill background white (like our Java Clear function)
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        let drawing = false;
+        let color = '#000000';
+        let size = 5;
+
+        // Drawing Event Listeners
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mousemove', draw);
+
+        function startDrawing(e) {
+            drawing = true;
+            draw(e); // Allow single dots
+        }
+
+        function stopDrawing() {
+            drawing = false;
+            ctx.beginPath(); // Resets path so next line starts fresh
+        }
+
+        function draw(e) {
+            if (!drawing) return;
+
+            ctx.lineWidth = size;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.strokeStyle = color;
+
+            // Get mouse position relative to canvas
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        }
+
+        // Toolbar Logic
+        document.getElementById('brushBtn').onclick = () => color = document.getElementById('colorPicker').value;
+        document.getElementById('eraserBtn').onclick = () => color = '#ffffff';
+        document.getElementById('clearBtn').onclick = () => {
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        };
+        document.getElementById('colorPicker').oninput = (e) => color = e.target.value;
+        document.getElementById('sizeSlider').oninput = (e) => size = e.target.value;
+
+        // Image Upload Logic (The "FileReader" command)
+        imageLoader.addEventListener('change', (e) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    // Draw image while maintaining aspect ratio
+                    const ratio = Math.min(canvas.width / img.width, canvas.height / img.height);
+                    const newWidth = img.width * ratio;
+                    const newHeight = img.height * ratio;
+                    ctx.drawImage(img, 0, 0, newWidth, newHeight);
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        });
+
+        // Save Logic
+        document.getElementById('saveBtn').onclick = () => {
+            const link = document.createElement('a');
+            link.download = 'my-drawing.png';
+            link.href = canvas.toDataURL();
+            link.click();
+        };
+    </script>
+</body>
+</html>
