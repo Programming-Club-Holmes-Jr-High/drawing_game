@@ -2,179 +2,142 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Java-Style Drawing Web App</title>
+    <title>Stardew: Community Center Update</title>
+    <script src="https://jsdelivr.net"></script>
     <style>
-        /* CSS: The "Look" */
-        body {
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #2c3e50;
-            overflow: hidden;
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Courier New', monospace; }
+        #ui-layer { position: absolute; top: 10px; left: 10px; z-index: 100; pointer-events: none; }
+        .quest-box { background: rgba(0,0,0,0.7); border: 2px solid #f1c40f; padding: 10px; color: white; border-radius: 5px; margin-bottom: 10px; width: 200px; }
+        #dialogue-container { 
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            width: 80%; background: rgba(45, 25, 10, 0.9); border: 4px solid #8b4513;
+            padding: 20px; color: #f5deb3; display: none; z-index: 1000; border-radius: 10px;
         }
-
-        .toolbar {
-            background: #34495e;
-            padding: 10px 20px;
-            display: flex;
-            gap: 15px;
-            align-items: center;
-            color: white;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-            z-index: 10;
-        }
-
-        canvas {
-            flex-grow: 1;
-            cursor: crosshair;
-            background: white;
-            touch-action: none; /* Helps with mobile drawing */
-        }
-
-        button, .upload-label {
-            background: #ecf0f1;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: bold;
-            color: #2c3e50;
-            transition: 0.2s;
-        }
-
-        button:hover, .upload-label:hover {
-            background: #bdc3c7;
-        }
-
-        .upload-label { background: #3498db; color: white; }
-        #clearBtn { background: #e74c3c; color: white; }
-        
-        input[type="file"] { display: none; }
-        .control-group { display: flex; align-items: center; gap: 8px; }
     </style>
 </head>
 <body>
-
-    <div class="toolbar">
-        <div class="control-group">
-            <button id="brushBtn">Brush</button>
-            <button id="eraserBtn">Eraser</button>
+    <div id="ui-layer">
+        <div class="quest-box">
+            <strong style="color: #f1c40f;">ACTIVE QUEST:</strong>
+            <div id="quest-text">Listen to the Mayor</div>
         </div>
-        
-        <div class="control-group">
-            <label>Color:</label>
-            <input type="color" id="colorPicker" value="#000000">
+        <div class="quest-box">
+            <strong style="color: #2ecc71;">COMMUNITY CENTER:</strong>
+            <div id="cc-progress">Bundles: 0/3</div>
         </div>
-
-        <div class="control-group">
-            <label>Size:</label>
-            <input type="range" id="sizeSlider" min="1" max="50" value="5">
-        </div>
-
-        <button id="clearBtn">Clear All</button>
-
-        <label class="upload-label">
-            Upload Image
-            <input type="file" id="imageLoader" accept="image/*">
-        </label>
-        
-        <button id="saveBtn" style="background: #27ae60; color: white;">Save Drawing</button>
     </div>
 
-    <canvas id="drawingCanvas"></canvas>
+    <div id="dialogue-container">
+        <div id="name-tag" style="font-weight:bold; color:#f1c40f; font-size:22px;"></div>
+        <div id="message" style="font-size:18px;"></div>
+    </div>
 
     <script>
-        /* JS: The "Logic" */
-        const canvas = document.getElementById('drawingCanvas');
-        const ctx = canvas.getContext('2d');
-        const imageLoader = document.getElementById('imageLoader');
+    const config = {
+        type: Phaser.AUTO,
+        width: 800, height: 600,
+        pixelArt: true,
+        physics: { default: 'arcade' },
+        scene: { preload, create, update }
+    };
 
-        // Setup Canvas Size
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight - 60; // Subtract toolbar height
-            // Fill background white (like our Java Clear function)
-            ctx.fillStyle = "white";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
+    const game = new Phaser.Game(config);
+    let player, cursors, bundlesFound = 0, isCutscene = true;
+    let questStep = 0; // 0: Intro, 1: Visit CC, 2: Collect
 
-        let drawing = false;
-        let color = '#000000';
-        let size = 5;
+    function preload() {
+        this.load.spritesheet('chars', 'https://phaser.io', { frameWidth: 16, frameHeight: 18 });
+    }
 
-        // Drawing Event Listeners
-        canvas.addEventListener('mousedown', startDrawing);
-        canvas.addEventListener('mouseup', stopDrawing);
-        canvas.addEventListener('mousemove', draw);
+    function create() {
+        // 1. MAP SETUP
+        this.add.grid(1000, 1000, 2000, 2000, 40, 40, 0x27ae60).setAlpha(0.2);
+        this.physics.world.setBounds(0, 0, 2000, 2000);
 
-        function startDrawing(e) {
-            drawing = true;
-            draw(e); // Allow single dots
-        }
+        // 2. COMMUNITY CENTER (Building Placeholder)
+        const cc = this.add.rectangle(1500, 200, 200, 150, 0x95a5a6).setStrokeStyle(4, 0x7f8c8d);
+        this.add.text(1420, 180, "COMMUNITY CENTER", {fontSize: '14px', color: '#fff'});
+        
+        // Interaction Zone for CC
+        this.ccZone = this.add.zone(1500, 200, 220, 170);
+        this.physics.world.enable(this.ccZone);
 
-        function stopDrawing() {
-            drawing = false;
-            ctx.beginPath(); // Resets path so next line starts fresh
-        }
+        // 3. PLAYER
+        player = this.physics.add.sprite(400, 300, 'chars').setScale(2.5);
+        this.cameras.main.startFollow(player);
 
-        function draw(e) {
-            if (!drawing) return;
+        // 4. BUNDLE ITEMS (Collectibles)
+        this.bundles = this.physics.add.staticGroup();
+        this.bundles.create(200, 1500, 'chars').setTint(0xff0000).setName('Spring Bundle');
+        this.bundles.create(1800, 1800, 'chars').setTint(0x00ff00).setName('Summer Bundle');
+        this.bundles.create(100, 100, 'chars').setTint(0x0000ff).setName('Winter Bundle');
 
-            ctx.lineWidth = size;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.strokeStyle = color;
-
-            // Get mouse position relative to canvas
-            const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-
-            ctx.lineTo(x, y);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-        }
-
-        // Toolbar Logic
-        document.getElementById('brushBtn').onclick = () => color = document.getElementById('colorPicker').value;
-        document.getElementById('eraserBtn').onclick = () => color = '#ffffff';
-        document.getElementById('clearBtn').onclick = () => {
-            ctx.fillStyle = "white";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-        };
-        document.getElementById('colorPicker').oninput = (e) => color = e.target.value;
-        document.getElementById('sizeSlider').oninput = (e) => size = e.target.value;
-
-        // Image Upload Logic (The "FileReader" command)
-        imageLoader.addEventListener('change', (e) => {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const img = new Image();
-                img.onload = () => {
-                    // Draw image while maintaining aspect ratio
-                    const ratio = Math.min(canvas.width / img.width, canvas.height / img.height);
-                    const newWidth = img.width * ratio;
-                    const newHeight = img.height * ratio;
-                    ctx.drawImage(img, 0, 0, newWidth, newHeight);
-                };
-                img.src = event.target.result;
-            };
-            reader.readAsDataURL(e.target.files[0]);
+        // 5. QUEST LOGIC: COLLISION
+        this.physics.add.overlap(player, this.bundles, (p, b) => {
+            if (questStep >= 1) {
+                b.destroy();
+                bundlesFound++;
+                updateUI();
+                if(bundlesFound === 3) showDialogue("System", ["All bundles collected! Return to the Community Center!"]);
+            }
         });
 
-        // Save Logic
-        document.getElementById('saveBtn').onclick = () => {
-            const link = document.createElement('a');
-            link.download = 'my-drawing.png';
-            link.href = canvas.toDataURL();
-            link.click();
-        };
+        this.physics.add.overlap(player, this.ccZone, () => {
+            if (questStep === 1) {
+                questStep = 2;
+                showDialogue("Junimo", ["Find the 3 lost bundles hidden across the valley to fix this place!"]);
+                updateUI();
+            } else if (questStep === 2 && bundlesFound === 3) {
+                questStep = 3;
+                cc.setFillStyle(0xf1c40f); // Building "Repaired"
+                showDialogue("Mayor", ["Unbelievable! You fixed the Community Center! You're a hero!"]);
+                updateUI();
+            }
+        });
+
+        // 6. INTRO
+        runIntro(this);
+        cursors = this.input.keyboard.createCursorKeys();
+    }
+
+    async function runIntro(scene) {
+        scene.cameras.main.pan(1500, 200, 2000); // Pan to CC
+        showDialogue("Mayor", ["Look at this old Community Center... it's a mess.", "Go check it out, will you?"]);
+        await new Promise(r => setTimeout(r, 4000));
+        scene.cameras.main.pan(400, 300, 1000);
+        hideDialogue();
+        isCutscene = false;
+        questStep = 1;
+        updateUI();
+    }
+
+    function showDialogue(name, lines) {
+        const container = document.getElementById('dialogue-container');
+        container.style.display = 'block';
+        document.getElementById('name-tag').innerText = name;
+        document.getElementById('message').innerText = lines[0];
+        // Auto-hide after 4s
+        setTimeout(hideDialogue, 4000);
+    }
+
+    function hideDialogue() { document.getElementById('dialogue-container').style.display = 'none'; }
+
+    function updateUI() {
+        const qText = document.getElementById('quest-text');
+        if (questStep === 1) qText.innerText = "Visit the Community Center (Top Right)";
+        if (questStep === 2) qText.innerText = "Collect 3 Hidden Bundles";
+        if (questStep === 3) qText.innerText = "Quest Complete!";
+        document.getElementById('cc-progress').innerText = `Bundles: ${bundlesFound}/3`;
+    }
+
+    function update() {
+        if (isCutscene) return;
+        player.setVelocity(0);
+        if (cursors.left.isDown) player.setVelocityX(-200);
+        else if (cursors.right.isDown) player.setVelocityX(200);
+        if (cursors.up.isDown) player.setVelocityY(-200);
+        else if (cursors.down.isDown) player.setVelocityY(200);
+    }
     </script>
 </body>
 </html>
